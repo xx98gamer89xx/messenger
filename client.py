@@ -1,4 +1,5 @@
 import nacl.utils
+import subprocess
 import requests
 import time
 import json
@@ -34,32 +35,40 @@ def give_information():
     with open(public_key_file, "rb") as f:
         binary_public_key = f.read()
         hex_public_key = binary_public_key.hex()
-        print(hex_public_key)
+        print(f"\n Tu clave pública es: {hex_public_key}, dásela a otros para que te añadan a sus contactos")
+
+def see_contacts():
+    print("TODOS LOS CONTACTOS\n----------------------")
+    i = 1
+    for contact in contacts:
+        print(f"{i}. Nombre: {contact}, Clave: {contacts[contact].hex()}\n")
+        i += 1
 
 def add_contact():
     global contacts
-    with open("contacts.json", "r") as f:
-        hex_contacts = json.load(f)
-        print(hex_contacts)
-        for i in range(len(hex_contacts)):
-            contact_id = contacts.get(i)
-            contacts[contact_id] = bytes.fromhex(contacts[contact_id])
-            print(f"Contacto {str(i)} añadido: {contacts[i]}")
-            i += 1
-        print(contacts)
+    try: 
+        with open("contacts.json", "r") as f:
+            see_contacts()
+            hex_contacts = json.load(f)
+            for name, hex_key in hex_contacts.items():
+                contacts[name] = bytes.fromhex(hex_key)
+    except:
+        contacts = {}
     identifier = input("Identificador del contacto: ")
     hex_public_key = input("Hexadecimal del contacto: ")
     public_key = bytes.fromhex(hex_public_key)
     contacts[identifier] = public_key
-    for contact in contacts:
-        contacts[contact] = contacts[contact].hex()
     with open("contacts.json", mode="w", encoding="utf-8") as f:
         json.dump(contacts, f)
+    see_contacts()
 
 
 
-def send_message(receiver, encrypted_message):
+def send_message():
     global identifier
+    message = input("Mensaje a enviar: ")
+    receiver = input("Entregar a: ")
+    encrypted_message = encrypt_message(message, receiver)
     data = {"to": receiver, "message": encrypted_message.hex(), "from": identifier}
     response = requests.post(server_url, json=data)
     print("Respuesta del servidor:", response.json())
@@ -97,7 +106,9 @@ def encrypt_message(message, receiver):
         external_public_key = PublicKey(contacts.get(receiver))
     except:
         print("No tienes ese contacto")
+        print(contacts.get(receiver))
         return None
+    print(f"type(private_key)={type(private_key)}, type(contacts[receiver])={type(contacts[receiver])}")
     box = Box(private_key, external_public_key)
     encrypted_message = box.encrypt(message.encode())
     return encrypted_message
@@ -125,9 +136,13 @@ def main():
 def comprobations():
     global contacts
     global identifier
+    global private_key
+    global public_key
     try:
-        with open("public_key", "r") as f:
-            pass
+        with open("private_key", "rb") as f:
+            private_key = PrivateKey(f.read())
+        with open("public_key", "rb") as f:
+            public_key = PublicKey(f.read())
     except:
         print("No tienes clave, generando...")
         gen_keys()
@@ -144,12 +159,26 @@ def comprobations():
         print("No hay contactos, añadelos")
         add_contact()
 
+def menu():
+    ToDo = int(input("\nQue quieres:\n 0. Dar tu clave\n 1. Añadir contacto\n 2. Ver contactos\n 3. Enviar mensaje\n 4. Ver mensajes nuevos\n"))
+    if ToDo == 0:
+        subprocess.run("clear", shell = True, executable="/bin/bash")
+        give_information()
+    if ToDo == 1:
+        subprocess.run("clear", shell = True, executable="/bin/bash")
+        add_contact()
+    if ToDo == 2:
+        subprocess.run("clear", shell = True, executable="/bin/bash")
+        see_contacts()
+    if ToDo == 3:
+        subprocess.run("clear", shell = True, executable="/bin/bash")
+        send_message()  
+    if ToDo == 4:
+        subprocess.run("clear", shell = True, executable="/bin/bash")
+        receive_messages()
+    
 
 comprobations()
-ToDo = int(input("Que quieres: dar clave, añadir contacto, enviar mensaje(0, 1, 2)"))
-if ToDo == 0:
-    give_information()
-if ToDo == 1:
-    add_contact()
-if ToDo == 2:
-    main()
+while True:
+    comprobations()
+    menu()

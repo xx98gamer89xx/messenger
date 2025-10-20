@@ -160,7 +160,7 @@ def comprobations():
         add_contact()
 
 def menu():
-    ToDo = int(input("\nQue quieres:\n 0. Dar tu clave\n 1. Añadir contacto\n 2. Ver contactos\n 3. Enviar mensaje\n 4. Ver mensajes nuevos\n"))
+    ToDo = int(input("\nQue quieres:\n 0. Dar tu clave\n 1. Añadir contacto\n 2. Ver contactos\n 3. Enviar mensaje\n 4. Ver mensajes nuevos\n 5. Salir\n"))
     if ToDo == 0:
         subprocess.run("clear", shell = True, executable="/bin/bash")
         give_information()
@@ -176,9 +176,13 @@ def menu():
     if ToDo == 4:
         subprocess.run("clear", shell = True, executable="/bin/bash")
         receive_messages()
+    if ToDo == 5:
+        subprocess.run("clear", shell = True, executable="/bin/bash")
+        return "break"
     
 
 comprobations()
 while True:
     comprobations()
-    menu()
+    if menu() == "break":
+        break

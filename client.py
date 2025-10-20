@@ -1,15 +1,17 @@
 import nacl.utils
 import requests
 import time
-import pickle
+import json
 from flask import Flask, request, jsonify
 from nacl.public import PrivateKey, PublicKey, Box
 from pathlib import Path
-external_public_key = 0
 identifier = 0
 server_url = "http://127.0.0.1:5000/send_message"
 private_key_file = Path("private_key")
 public_key_file = Path("public_key")
+contacts = {}
+private_key = None
+public_key = None
 def gen_keys():
     global private_key
     global public_key
@@ -20,6 +22,7 @@ def gen_keys():
     with open("public_key", "wb") as f:
         f.write(public_key.encode())
     give_information()
+
 def gen_id():
     global identifier
     identifier = input("No tienes nombre, ponlo: ")
@@ -28,7 +31,6 @@ def gen_id():
 
 
 def give_information():
-    global public_key_file
     with open(public_key_file, "rb") as f:
         binary_public_key = f.read()
         hex_public_key = binary_public_key.hex()
@@ -36,23 +38,27 @@ def give_information():
 
 def add_contact():
     global contacts
-    try:
-        with open("contacts.pkl", "rb") as f:
-            contacts = pickle.load(f)
-    except:
-        contacts = {}
+    with open("contacts.json", "r") as f:
+        hex_contacts = json.load(f)
+        print(hex_contacts)
+        for i in range(len(hex_contacts)):
+            contact_id = contacts.get(i)
+            contacts[contact_id] = bytes.fromhex(contacts[contact_id])
+            print(f"Contacto {str(i)} añadido: {contacts[i]}")
+            i += 1
+        print(contacts)
     identifier = input("Identificador del contacto: ")
     hex_public_key = input("Hexadecimal del contacto: ")
     public_key = bytes.fromhex(hex_public_key)
     contacts[identifier] = public_key
-    with open("contacts.pkl", "wb") as f:
-        pickle.dump(contacts, f)
+    for contact in contacts:
+        contacts[contact] = contacts[contact].hex()
+    with open("contacts.json", mode="w", encoding="utf-8") as f:
+        json.dump(contacts, f)
 
 
 
-def send_message():
-    global receiver
-    global encrypted_message
+def send_message(receiver, encrypted_message):
     global identifier
     data = {"to": receiver, "message": encrypted_message.hex(), "from": identifier}
     response = requests.post(server_url, json=data)
@@ -76,7 +82,6 @@ def receive_messages():
 
 
 def decrypt_messages(message, sender):
-    global external_public_key
     try: 
         external_public_key = PublicKey(contacts[sender])
     except:
@@ -87,23 +92,17 @@ def decrypt_messages(message, sender):
     message = decrypted_message.decode()
     return message
 
-def encrypt_message():
-    global external_public_key
-    global message
-    global private_key
-    global public_key
-    global box
-    global encrypted_message
-    try: 
-        external_public_key = PublicKey(contacts[receiver])
+def encrypt_message(message, receiver):
+    try:
+        external_public_key = PublicKey(contacts.get(receiver))
     except:
         print("No tienes ese contacto")
+        return None
     box = Box(private_key, external_public_key)
     encrypted_message = box.encrypt(message.encode())
+    return encrypted_message
 
-def main():
-    global message
-    global receiver
+def main(): 
     global public_key
     global private_key
     if not private_key_file.exists() or not public_key_file.exists():
@@ -117,12 +116,15 @@ def main():
             print(f"Clave pública = {public_key}")
     message = input("Mensaje a enviar: ")
     receiver = input("Mensaje para: ")
-    encrypt_message()
-    send_message()
+    encrypted_message = encrypt_message(message, receiver)
+    send_message(receiver, encrypted_message)
     while True:
         receive_messages()
         time.sleep(2)
+
 def comprobations():
+    global contacts
+    global identifier
     try:
         with open("public_key", "r") as f:
             pass
@@ -135,11 +137,9 @@ def comprobations():
     except:
         gen_id()
     try:
-        global contacts
-        with open("contacts.pkl", "rb") as f:
-            contacts = pickle.load(f)
-        with open("contacts.pkl", "rb") as f:
-            contacts = pickle.load(f)
+        with open("contacts.json", "r") as f:
+            hex_contacts = json.load(f)
+            contacts = {identifier: bytes.fromhex(hex_key) for identifier, hex_key in hex_contacts.items()}
     except:
         print("No hay contactos, añadelos")
         add_contact()

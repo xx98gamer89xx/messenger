@@ -11,6 +11,7 @@ def send_message():
     sender = data["from"]
     message = data['message']
     messages.setdefault(receiver, []).append([message, sender])
+    print(f"El mensaje va a {data["from"]}, contiene {data["message"]} y hacia {data["to"]}")
     return jsonify({"status": "ok"})
 @app.route("/receive_messages", methods=["GET"])
 def receive_messages():

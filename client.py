@@ -59,7 +59,11 @@ def add_contact():
     public_key = bytes.fromhex(hex_public_key)
     contacts[identifier] = public_key
     with open("contacts.json", mode="w", encoding="utf-8") as f:
-        json.dump(contacts, f)
+        hex_contacts = {}
+        for contact in contacts:
+            hex_contact = contacts[contact].hex()
+            hex_contacts[contact] = hex_contact
+        json.dump(hex_contacts, f)
     see_contacts()
 
 

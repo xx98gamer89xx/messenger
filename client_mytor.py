@@ -7,11 +7,17 @@ import sqlite3
 from nacl.public import PrivateKey, PublicKey, Box
 
 identifier = 0
-server_url = "http://127.0.0.1:5000/send_message"  # <-- conexión local estándar
 contacts = {}
 private_key = None
 public_key = None
 
+# ------------------ PARTE DE TOR  -------------------
+server_url = "http://g6byxwj63dqhjeknwhstgyd3lbe5gzda6zv6scway6r4mtyvm2wdvhyd.onion/send_message"  # Dirección del servidor de tor
+proxies = {
+    'http': 'socks5h://localhost:9050',
+    'https': 'socks5h://localhost:9050'
+}
+    
 # ------------------ LLAVES Y NOMBRE ------------------
 
 def gen_keys():
@@ -99,7 +105,7 @@ def send_message():
     data = {"to": receiver, "message": encrypted_message.hex(), "from": identifier}
     try:
         # Manda mensajes y el servidor responde si todo ok
-        response = requests.post(server_url, json=data, timeout=10)
+        response = requests.post(server_url, json=data, timeout=10, proxies=proxies)
         print("Mensaje enviado correctamente")
     except Exception as e:
         print("Error al enviar mensaje:", e)
@@ -109,7 +115,7 @@ def receive_messages():
     params = {"user": identifier}
     try:
         # Recibe mensajes del servidor destinados a él
-        response = requests.get(receive_url, params=params, timeout=10)
+        response = requests.get(receive_url, params=params, timeout=10, proxies=proxies)
         messages_list = response.json()
         for msg_hex, sender in messages_list:
             write_database(msg_hex, sender)

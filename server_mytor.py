@@ -1,9 +1,12 @@
 from flask import Flask, request, jsonify
 import sqlite3
-
+import requests
 app = Flask(__name__)
 sql_table_messages = ""
-
+proxies = {
+    'http': 'socks5h://localhost:9050',
+    'https': 'socks5h://localhost:9050'
+}
 def write_database(to, message, sender):
     with sqlite3.connect("sqlite.db") as connection:
         # Crea una tabla con las columnas para:; mensaje:; de:

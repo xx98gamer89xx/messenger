@@ -6,6 +6,7 @@ sql_table_messages = ""
 
 def write_database(to, message, sender):
     with sqlite3.connect("sqlite.db") as connection:
+        # Crea una tabla con las columnas para:; mensaje:; de:
         cursor = connection.cursor()
         cursor.execute(""" CREATE TABLE IF NOT EXISTS messages (
         for text,
@@ -14,17 +15,18 @@ def write_database(to, message, sender):
         )
         """)
         cursor.execute("INSERT INTO messages VALUES (?, ?, ?)", (to, message, sender))
-        ## Hacer los cambios
+
         connection.commit()
 
 def delete_message(to, message, sender):
+    # Borra los mensajes ya enviados a los clientes (Solo los almacenan ellos una vez entregados)
     with sqlite3.connect("sqlite.db") as connection:
         cursor = connection.cursor()
         cursor.execute("DELETE from messages WHERE for=? AND message=? AND sender=?", (to, message, sender))
-        ## Hacer los cambios
         connection.commit()
 
 def find_messages_to_send(to):
+    # Selecciona los mensajes que pasar a los clientes (Los suyos)
     msgs = []
     data = load_database()
     for row in data:
@@ -39,6 +41,7 @@ def find_messages_to_send(to):
 
 
 def load_database():
+    # Pasa todos los mensajes de la tabla (la tabla solo contiene los no entregados, lo demás no se almacena)
     with sqlite3.connect("sqlite.db") as connection:
         cursor = connection.cursor()
         cursor.execute("SELECT * FROM messages")
@@ -60,6 +63,7 @@ def load_database():
 #    }
 
 def send_message():
+    # Envía los mensajes que le piden
     data = request.json
     receiver = data['to']
     sender = data["from"]
@@ -67,8 +71,12 @@ def send_message():
     write_database(receiver, message, sender)
     print(f"El mensaje va desde {data["from"]}, contiene {data["message"]}, hacia {data["to"]}")
     return jsonify({"status": "ok"})
+
+
+
 @app.route("/receive_messages", methods=["GET"])
 def receive_messages():
+    # Guarda los mensajes que quieren mandar a otros
     user = request.args.get('user')
     msgs = find_messages_to_send(user)
     return jsonify(msgs)

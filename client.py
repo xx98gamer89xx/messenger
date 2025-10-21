@@ -3,19 +3,22 @@ import subprocess
 import requests
 import time
 import json
-from flask import Flask, request, jsonify
+import sqlite3
 from nacl.public import PrivateKey, PublicKey, Box
 from pathlib import Path
+
 identifier = 0
-server_url = "http://127.0.0.1:5000/send_message"
+server_url = "http://127.0.0.1:5000/send_message"  # <-- conexión local estándar
 private_key_file = Path("private_key")
 public_key_file = Path("public_key")
 contacts = {}
 private_key = None
 public_key = None
+
+# ------------------ LLAVES Y NOMBRE ------------------
+
 def gen_keys():
-    global private_key
-    global public_key
+    global private_key, public_key
     private_key = PrivateKey.generate()
     public_key = private_key.public_key
     with open("private_key", "wb") as f:
@@ -26,47 +29,70 @@ def gen_keys():
 
 def gen_id():
     global identifier
-    identifier = input("No tienes nombre, ponlo: ")
+    identifier = input("No tienes nombre, póntelo: ")
     with open("identifier", "w") as f:
         f.write(identifier)
-
 
 def give_information():
     with open(public_key_file, "rb") as f:
         binary_public_key = f.read()
         hex_public_key = binary_public_key.hex()
-        print(f"\n Tu clave pública es: {hex_public_key}, dásela a otros para que te añadan a sus contactos")
+        print(f"\nTu clave pública es: {hex_public_key}, dásela a otros para que te añadan a sus contactos")
 
-def see_contacts():
-    print("TODOS LOS CONTACTOS\n----------------------")
-    i = 1
-    for contact in contacts:
-        print(f"{i}. Nombre: {contact}, Clave: {contacts[contact].hex()}\n")
-        i += 1
+# ------------------ CONTACTOS ------------------
+
+def see_contacts(text):
+    print(f"{text}\n----------------------")
+    with open("contacts.json", mode="r", encoding="utf-8") as f:
+        hex_contacts = json.load(f)
+        i = 0
+        for key in hex_contacts.keys():
+            i += 1
+            print(f"{i}. Nombre: {key} Clave: {hex_contacts[key]}")
 
 def add_contact():
     global contacts
-    try: 
+    try:
+        # Carga el archivo de contactos a la variable y lo traduce a bytes, para que sea operable por nacl
         with open("contacts.json", "r") as f:
-            see_contacts()
+            see_contacts("TODOS LOS CONTACTOS")
             hex_contacts = json.load(f)
             for name, hex_key in hex_contacts.items():
                 contacts[name] = bytes.fromhex(hex_key)
-    except:
+    except FileNotFoundError as e:
+        # Si no hay archivo, considera que contacts está vacío
         contacts = {}
+        print(e)
+    # Pide credenciales del contacto, las mete a la variable y las pasa al json
     identifier = input("Identificador del contacto: ")
     hex_public_key = input("Hexadecimal del contacto: ")
     public_key = bytes.fromhex(hex_public_key)
     contacts[identifier] = public_key
-    with open("contacts.json", mode="w", encoding="utf-8") as f:
-        hex_contacts = {}
-        for contact in contacts:
-            hex_contact = contacts[contact].hex()
-            hex_contacts[contact] = hex_contact
+    text = "NUEVOS CONTACTOS"
+    with open("contacts.json", "w", encoding="utf-8") as f:
+        hex_contacts = {c: contacts[c].hex() for c in contacts}
         json.dump(hex_contacts, f)
-    see_contacts()
+    see_contacts(text)
 
+# ------------------ BASE DE DATOS ------------------
 
+def write_database(message, sender):
+    with sqlite3.connect("sqlite.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("""CREATE TABLE IF NOT EXISTS messages (
+            message text,
+            sender text
+        )""")
+        cursor.execute("INSERT INTO messages VALUES (?, ?)", (message, sender))
+        conn.commit()
+
+def load_database():
+    with sqlite3.connect("sqlite.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM messages")
+        return cursor.fetchall()
+
+# ------------------ ENVIAR Y RECIBIR ------------------
 
 def send_message():
     global identifier
@@ -74,81 +100,87 @@ def send_message():
     receiver = input("Entregar a: ")
     encrypted_message = encrypt_message(message, receiver)
     data = {"to": receiver, "message": encrypted_message.hex(), "from": identifier}
-    response = requests.post(server_url, json=data)
-    print("Respuesta del servidor:", response.json())
+    try:
+        # Manda mensajes y el servidor responde si todo ok
+        response = requests.post(server_url, json=data, timeout=10)
+        print("Mensaje enviado correctamente")
+    except Exception as e:
+        print("Error al enviar mensaje:", e)
 
 def receive_messages():
-    global server_url
-    global identifier
     receive_url = server_url.replace("/send_message", "/receive_messages")
-    params = {"user": identifier}  # identifier es tu ID o nombre de usuario
-    response = requests.get(receive_url, params=params)
-    messages_list = response.json()
-    if not messages_list:
-        print("No hay mensajes nuevos.")
-        return
-    for msg_pair in messages_list:
-        msg_hex, sender = msg_pair
-        encrypted_msg_bytes = bytes.fromhex(msg_hex)
-        msg = decrypt_messages(encrypted_msg_bytes, sender)
-        print(f"Mensaje de {sender}: {msg}")
+    params = {"user": identifier}
+    try:
+        # Recibe mensajes del servidor destinados a él
+        response = requests.get(receive_url, params=params, timeout=10)
+        messages_list = response.json()
+        for msg_hex, sender in messages_list:
+            write_database(msg_hex, sender)
+    except Exception as e:
+        print("Error al recibir mensajes:", e)
 
+# ------------------ MENSAJES ------------------
+
+def load_messages():
+    # Mete en memoria los mensajes de la base de datos sin filtro (los mensajes de todos los usuarios) y los envía
+    messages = []
+    for row in load_database():
+        hex_message, sender = row
+        message_bytes = bytes.fromhex(hex_message)
+        messages.append(decrypt_messages(message_bytes, sender))
+    return messages
+
+def select_message():
+    # Selecciona los mensajes que son del contacto y se los manda a read_message()
+    messages = load_messages()
+    unique_senders = list({sender for _, sender in messages})
+    print("Tienes mensajes de esta gente: ")
+    for i, sender in enumerate(unique_senders):
+        print(f"{i + 1}. {sender}")
+    indice = int(input("Cual quieres leer: ")) -1
+    wanted_sender = unique_senders[indice]
+    read_message(messages, wanted_sender)
+
+def read_message(messages, objective):
+    # Escribe los mensajes que le pasan
+    for message, sender in messages:
+        if sender == objective:
+            print(f"-> {message}")
+
+# ------------------ CIFRADO ------------------
 
 def decrypt_messages(message, sender):
+    # Desencripta mensajes si tiene el contacto y la clave
     try: 
         external_public_key = PublicKey(contacts[sender])
     except:
         print("No tienes ese contacto")
-        return
+        return "", ""
     box = Box(private_key, external_public_key)
     decrypted_message = box.decrypt(message)
-    message = decrypted_message.decode()
-    return message
+    return decrypted_message.decode(), sender
 
 def encrypt_message(message, receiver):
+    # Encripta mensajes con la clave del destinatario (receiver)
     try:
         external_public_key = PublicKey(contacts.get(receiver))
     except:
         print("No tienes ese contacto")
-        print(contacts.get(receiver))
         return None
-    print(f"type(private_key)={type(private_key)}, type(contacts[receiver])={type(contacts[receiver])}")
     box = Box(private_key, external_public_key)
-    encrypted_message = box.encrypt(message.encode())
-    return encrypted_message
+    return box.encrypt(message.encode())
 
-def main(): 
-    global public_key
-    global private_key
-    if not private_key_file.exists() or not public_key_file.exists():
-        gen_keys()
-    else:
-        with open("private_key", "rb") as f:
-            private_key = PrivateKey(f.read())
-            print(f"Clave privada = {private_key}")
-        with open("public_key", "rb") as f:
-            public_key = PublicKey(f.read())
-            print(f"Clave pública = {public_key}")
-    message = input("Mensaje a enviar: ")
-    receiver = input("Mensaje para: ")
-    encrypted_message = encrypt_message(message, receiver)
-    send_message(receiver, encrypted_message)
-    while True:
-        receive_messages()
-        time.sleep(2)
+# ------------------ INICIALIZACIÓN ------------------
 
 def comprobations():
-    global contacts
-    global identifier
-    global private_key
-    global public_key
+    # Comprueba si hay contactos, id, claves y si no los crea
+    global contacts, identifier, private_key, public_key
     try:
         with open("private_key", "rb") as f:
             private_key = PrivateKey(f.read())
         with open("public_key", "rb") as f:
             public_key = PublicKey(f.read())
     except:
-        print("No tienes clave, generando...")
         gen_keys()
     try:
         with open("identifier", "r") as f:
@@ -158,35 +190,37 @@ def comprobations():
     try:
         with open("contacts.json", "r") as f:
             hex_contacts = json.load(f)
-            contacts = {identifier: bytes.fromhex(hex_key) for identifier, hex_key in hex_contacts.items()}
+            contacts = {name: bytes.fromhex(k) for name, k in hex_contacts.items()}
     except:
-        print("No hay contactos, añadelos")
         add_contact()
+
+# ------------------ MENÚ ------------------
 
 def menu():
+    # Actúa como TUI, permite al usuario seleccionar que quiere hacer
     ToDo = int(input("\nQue quieres:\n 0. Dar tu clave\n 1. Añadir contacto\n 2. Ver contactos\n 3. Enviar mensaje\n 4. Ver mensajes nuevos\n 5. Salir\n"))
     if ToDo == 0:
-        subprocess.run("clear", shell = True, executable="/bin/bash")
+        subprocess.run("clear", shell=True, executable="/bin/bash")
         give_information()
-    if ToDo == 1:
-        subprocess.run("clear", shell = True, executable="/bin/bash")
+    elif ToDo == 1:
+        subprocess.run("clear", shell=True, executable="/bin/bash")
         add_contact()
-    if ToDo == 2:
-        subprocess.run("clear", shell = True, executable="/bin/bash")
-        see_contacts()
-    if ToDo == 3:
-        subprocess.run("clear", shell = True, executable="/bin/bash")
-        send_message()  
-    if ToDo == 4:
-        subprocess.run("clear", shell = True, executable="/bin/bash")
+    elif ToDo == 2:
+        subprocess.run("clear", shell=True, executable="/bin/bash")
+        see_contacts("TODOS LOS CONTACTOS")
+    elif ToDo == 3:
+        subprocess.run("clear", shell=True, executable="/bin/bash")
+        send_message()
+    elif ToDo == 4:
+        subprocess.run("clear", shell=True, executable="/bin/bash")
         receive_messages()
-    if ToDo == 5:
-        subprocess.run("clear", shell = True, executable="/bin/bash")
+        select_message()
+    elif ToDo == 5:
         return "break"
-    
 
+# ------------------ EJECUCIÓN ------------------
 comprobations()
 while True:
-    comprobations()
+    # Ejecuta menú cada vez que se completa una tarea de ToDo y si se pide salir rompe el bucle
     if menu() == "break":
         break
